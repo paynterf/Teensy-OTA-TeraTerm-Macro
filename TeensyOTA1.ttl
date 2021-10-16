@@ -1,0 +1,160 @@
+/*
+16 October 2021 G. Frank Paynter
+Tera Term macro to connect to Teensy and send latest .HEX file
+
+Tera Term is called via a post-build command in VS2019/VMicro
+like <path_to_ttpmacro.exe> /v <path_to_TeensyOTA1.ttl> <build_path>\<project_name>.hex> <COM port>
+ 
+The actual post-build command is contained in the 'board.txt' file as follows:
+ recipe.hooks.postbuild.1.pattern=cmd.exe /c "c:\Program Files (x86)\teraterm\ttpmacro.exe" /v "c:\users\Frank\Documents\Arduino\Teensy Projects\TeensyOTADemo\Test2.ttl" "{vm.runtime.build.final_output_path}" {serial.port} {build.project_name}
+ 
+When this is passed to tera term the arguments appear as follows:
+
+BuildPath = param2 ; used to find the .HEX file to transfer, like "C:\Ussers\Frank\Arduino\Teensy Projects\TeensyOTADemo\Release\"
+CommPortStr = param3 ;"COMx" where 'x' is the actual number assigned
+ProjectFileName = param4 ;project file name like "TeensyOTADemo.ino"
+ 
+
+ Notes:
+	10/16/21: for verbose output, set VERBOSE = 1 (default is 0)
+*/
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+VERBOSE = 0; set this to 1 for verbose progress indications
+
+
+pathtoHexfile = param2
+COMportstr = param3
+strtrim COMportstr ' ' ; remove any leading/trailing spaces
+ComPortNumStr = COMportstr
+strremove ComPortNumStr 1 3 ;isolate the com port number
+INOfilename = param4
+
+if VERBOSE then
+	 sprintf2 msgstr "%s, %s, %s" param2 param3 param4;<param1> is ttl filename
+	 messagebox msgstr 'script calling arguments'
+
+	 sprintf2 msgstr "path to HEX file: %s" param2
+	 messagebox msgstr 'script calling arguments'
+	 sprintf2 msgstr "COM port number: %s" ComPortNumStr
+	 messagebox msgstr 'script calling arguments'
+	 sprintf2 msgstr "INO filename: %s" param4
+	 messagebox msgstr 'script calling arguments'
+endif
+
+;connect to Teensy via COM <param2>
+
+if VERBOSE then
+	sprintf2 msgstr "attempting to connnect to Teensy on COM%s" ComPortNumStr
+	messagebox msgstr 'info'
+endif
+
+sprintf2 cnct_str "/C=%s" ComPortNumStr ; actual string used by TT
+
+if VERBOSE then
+	messagebox cnct_str 'connect string'
+endif
+
+testlink; TT could already be connected
+; if result = 0 connect cnct_str; actually launch TT and make the connection. <result> = 2 for success
+if result = 0 connect cnct_str; actually launch TT and make the connection. <result> = 2 for success
+
+
+if result <> 2 then
+	sprintf2 errstr "unable to connect to Teensy on %s - aborting" COMportstr
+	messagebox errstr "Error"
+	goto ERROR ;error exit - closes COM connection and TT
+else 
+	;if we get to here, we have a valid COM port connection
+	if VERBOSE then
+		sprintf2 msgstr "sending trigger command (%s) and waiting for %s" "U" "waiting"
+		messagebox msgstr "info"
+	endif
+	
+	send 'U' ;actually send the trigger character
+	timeout = 5 ; seconds
+	wait 'waiting'
+	
+	if result = 0 then
+		messagebox "Oops - timed out waiting for 'waiting' from Teensy" "Error"
+		goto ERROR ;error exit - closes COM connection and TT
+	else ; OK, got 'waiting'...
+		if VERBOSE then
+			msgstr = "got 'waiting' string - sending file" 
+			messagebox  msgstr 'info'
+		endif
+		
+		hexfilestr = 'C:\Users\Frank\Documents\Arduino\Teensy Projects\TeensyOTADemo\Release\TeensyOTADemo.hex'
+		if VERBOSE then
+			messagebox hexfilestr 'sendfile'
+		endif
+		sendfile hexfilestr 0 ;actually send the file. Note the 0 is required to make it work
+		
+		;now we have to extract the number of lines from the 'enter xxxx to flash...' string
+		wait 'enter' ;get the next line from Teensy
+		if result = 0 then
+			messagebox "Oops - timed out waiting for 'enter' from Teensy" "Error"
+			goto ERROR ;error exit - closes COM connection and TT
+		else ; OK, got 'enter'...
+			if VERBOSE then
+				msgstr = "got string containing 'enter'"
+				messagebox msgstr 'info'
+			endif
+			
+			recvln; this puts received line into 'inputstr'
+			if result = 1 then
+				; if VERBOSE then
+					; messagebox inputstr 'From Teensy'
+				; endif
+				
+				;now extract number of lines from inputstr
+				strsplit inputstr ' ' ;puts numlines string into <groupmatchstr2>
+				strtrim groupmatchstr2 ' ';trim any leading/trailing spaces
+
+				if result <> 0 then
+				if VERBOSE then
+					sprintf2 msgstr '%s lines received' groupmatchstr2 
+					messagebox msgstr 'From Teensy'
+				endif
+					
+					;now send <groupmatchstr2> to Teensy to confirm update
+					if VERBOSE then
+						sprintf2 msgstr "sending '%s' to Teensy" groupmatchstr2
+						messagebox msgstr 'To Teensy'
+					endif
+
+					sendln groupmatchstr2; actually sends the <numlines> value
+				else
+					messagebox 'groupmatchstr2 send failed' 'error'
+					goto ERROR ;error exit - closes COM connection and TT
+				endif
+
+			else
+				messagebox "nothing received from Teensy" info
+				goto ERROR ;error exit - closes COM connection and TT
+			endif
+		endif
+	endif
+endif
+
+:ERROR
+if VERBOSE then
+	messagebox "closing COM port and Tera Term" "info"
+endif
+
+testlink ;TT may or may not be connnected
+if result <> 0 then
+	disconnect 1 ;closes the COM port connection
+	closett; closes teraterm
+endif
+
+end
+
+;endif
+;filenamebox 'File selection' 0
+;if result<>0 then
+;	messagebox inputstr 'title' 0
+;	sendfile inputstr 1
+;endif
+
+;c:\Program Files (x86)\teraterm>ttpmacro.exe /v "c:\users\Frank\Documents\Arduino\Teensy Projects\TeensyOTADemo\TeensyOTA1.ttl" 4
