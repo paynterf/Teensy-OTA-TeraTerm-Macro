@@ -17,6 +17,7 @@ ProjectFileName = param4 ;project file name like "TeensyOTADemo.ino"
 
  Notes:
 	10/16/21: for verbose output, set VERBOSE = 1 (default is 0)
+	10/30/21: modified to remove hard-coded paths & filenames
 */
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -27,8 +28,21 @@ pathtoHexfile = param2
 COMportstr = param3
 strtrim COMportstr ' ' ; remove any leading/trailing spaces
 ComPortNumStr = COMportstr
+;messagebox ComPortNumStr 'info'
 strremove ComPortNumStr 1 3 ;isolate the com port number
 INOfilename = param4
+strlen INOfilename
+
+if result > 0 then
+	INOfilenameLen = result
+;	sprintf2 msgstr 'INOfilename length is %d' INOfilenameLen
+;	messagebox msgstr 'INO filename length'
+	strcopy INOfilename 0 INOfilenameLen-3 HEXfilename; hex filename minus extension
+	strconcat HEXfilename 'HEX'
+else
+	messagebox 'INOfilename has zero length - aborting' "Error"
+	goto ERROR ;error exit - closes COM connection and TT
+endif
 
 if VERBOSE then
 	 sprintf2 msgstr "%s, %s, %s" param2 param3 param4;<param1> is ttl filename
@@ -36,10 +50,15 @@ if VERBOSE then
 
 	 sprintf2 msgstr "path to HEX file: %s" param2
 	 messagebox msgstr 'script calling arguments'
+	 
 	 sprintf2 msgstr "COM port number: %s" ComPortNumStr
 	 messagebox msgstr 'script calling arguments'
-	 sprintf2 msgstr "INO filename: %s" param4
+	 
+	 sprintf2 msgstr "INO filename: %s" INOfilename
 	 messagebox msgstr 'script calling arguments'
+	 
+	 sprintf2 msgstr "HEX filename: %s" HEXfilename
+	 messagebox msgstr 'Hex file filename'
 endif
 
 ;connect to Teensy via COM <param2>
@@ -84,7 +103,9 @@ else
 			messagebox  msgstr 'info'
 		endif
 		
-		hexfilestr = 'C:\Users\Frank\Documents\Arduino\Teensy Projects\TeensyOTADemo\Release\TeensyOTADemo.hex'
+		;10/30/21 chg to use constructed filename vs hard-coded
+		;hexfilestr = 'C:\Users\Frank\Documents\Arduino\Teensy Projects\TeensyOTADemo\Release\TeensyOTADemo.hex'
+		sprintf2 hexfilestr '%s%s' pathtoHexfile HEXfilename
 		if VERBOSE then
 			messagebox hexfilestr 'sendfile'
 		endif
