@@ -10,127 +10,148 @@ The actual post-build command is contained in the 'board.txt' file as follows:
  
 When this is passed to tera term the arguments appear as follows:
 
-BuildPath = param2 ; used to find the .HEX file to transfer, like "C:\Ussers\Frank\Arduino\Teensy Projects\TeensyOTADemo\Release\"
-CommPortStr = param3 ;"COMx" where 'x' is the actual number assigned
-ProjectFileName = param4 ;project file name like "TeensyOTADemo.ino"
+param1 = macro filename (TeensyOTA1.TTL)
+param2 = BuildPath ; used to find the .HEX file to transfer, like "C:\Ussers\Frank\Arduino\Teensy Projects\TeensyOTADemo\Release\"
+param3 = COMportstr ;"COMx" where 'x' is the actual number assigned
+param4 = INOfilename ;project file name like "TeensyOTADemo.ino"
  
 
  Notes:
 	10/16/21: for verbose output, set VERBOSE = 1 (default is 0)
 	10/30/21: modified to remove hard-coded paths & filenames
+	01/02/22: revised to support multiple connection tries
 */
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+/*-----------------------------------------------------------------------------*/
+/*-----------------------------------------------------------------------------*/
 
 VERBOSE = 0; set this to 1 for verbose progress indications
 
+BuildPath = param2
+strlen BuildPath
+if result > 0 then
+	pathlen = result
+	strremove BuildPath pathlen 1;remove trailing '\'
+;messagebox BuildPath 'file'
+else
+	messagebox 'BuildPath has zero length - aborting' "Error"
+	goto ERROR ;error exit - closes COM connection and TT
+endif
 
-pathtoHexfile = param2
 COMportstr = param3
-strtrim COMportstr ' ' ; remove any leading/trailing spaces
+strtrim COMportstr ' ' /*remove any leading/trailing spaces*/
 ComPortNumStr = COMportstr
 ;messagebox ComPortNumStr 'info'
-strremove ComPortNumStr 1 3 ;isolate the com port number
+strremove ComPortNumStr 1 3 /*isolate the com port number*/
+
+/*generate hex filename*/
 INOfilename = param4
 strlen INOfilename
-
 if result > 0 then
 	INOfilenameLen = result
-;	sprintf2 msgstr 'INOfilename length is %d' INOfilenameLen
-;	messagebox msgstr 'INO filename length'
-	strcopy INOfilename 0 INOfilenameLen-3 HEXfilename; hex filename minus extension
+	strcopy INOfilename 0 INOfilenameLen-3 HEXfilename/* hex filename minus extension*/
 	strconcat HEXfilename 'HEX'
 else
 	messagebox 'INOfilename has zero length - aborting' "Error"
-	goto ERROR ;error exit - closes COM connection and TT
+	goto ERROR /*error exit - closes COM connection and TT*/
 endif
 
 if VERBOSE then
-	 sprintf2 msgstr "%s, %s, %s" param2 param3 param4;<param1> is ttl filename
-	 messagebox msgstr 'script calling arguments'
-
-	 sprintf2 msgstr "path to HEX file: %s" param2
-	 messagebox msgstr 'script calling arguments'
-	 
-	 sprintf2 msgstr "COM port number: %s" ComPortNumStr
-	 messagebox msgstr 'script calling arguments'
-	 
-	 sprintf2 msgstr "INO filename: %s" INOfilename
-	 messagebox msgstr 'script calling arguments'
-	 
-	 sprintf2 msgstr "HEX filename: %s" HEXfilename
-	 messagebox msgstr 'Hex file filename'
+	sprintf2 msgstr2 "path to HEX file: %s\n" BuildPath
+	sprintf2 msgstr3 "COM port number: %s\n" ComPortNumStr
+	sprintf2 msgstr4 "INO filename: %s\n" INOfilename
+	sprintf2 msgstr "%s%s%s" msgstr2 msgstr3 msgstr4
+	strspecial msgstr/*converts '\n's into real crlf actions*/
+	messagebox msgstr 'Calling Arguments'
 endif
 
-;connect to Teensy via COM <param2>
-
+:COMCONNECT
+/*connect to Teensy via COM <param2>*/
+sprintf2 cnct_str "/C=%s" ComPortNumStr /* actual string used by TT*/
 if VERBOSE then
-	sprintf2 msgstr "attempting to connnect to Teensy on COM%s" ComPortNumStr
+	sprintf2 msgstr "attempting to connnect to Teensy on COM%s using %s" ComPortNumStr cnct_str
 	messagebox msgstr 'info'
+	messagebox result 'result before testlink'
 endif
 
-sprintf2 cnct_str "/C=%s" ComPortNumStr ; actual string used by TT
+testlink /* TT could already be connected*/
 
 if VERBOSE then
-	messagebox cnct_str 'connect string'
+	messagebox result 'result after testlink'
 endif
 
-testlink; TT could already be connected
-; if result = 0 connect cnct_str; actually launch TT and make the connection. <result> = 2 for success
-if result = 0 connect cnct_str; actually launch TT and make the connection. <result> = 2 for success
-
-
+/*if result = 0 then*/
 if result <> 2 then
-	sprintf2 errstr "unable to connect to Teensy on %s - aborting" COMportstr
-	messagebox errstr "Error"
-	goto ERROR ;error exit - closes COM connection and TT
+	connect cnct_str/* actually launch TT and make the connection. <result> = 2 for success*/
+endif
+
+if VERBOSE then
+	messagebox result 'result after connect try'
+endif
+
+/*01/02/22 now supports multiple connection tries (maybe you forgot to power up the other end?)*/
+if result <> 2 then
+	sprintf2 errstr "unable to connect to Teensy on %s - Try Again?" COMportstr
+	yesnobox errstr "Error"
+	if result <> 1 then
+		goto ERROR /*error exit - closes COM connection and TT*/
+	else
+		result = 0
+		goto COMCONNECT
+	endif
 else 
-	;if we get to here, we have a valid COM port connection
+	/*if we get to here, we have a valid COM port connection*/
 	if VERBOSE then
 		sprintf2 msgstr "sending trigger command (%s) and waiting for %s" "U" "waiting"
 		messagebox msgstr "info"
 	endif
 	
-	send 'U' ;actually send the trigger character
-	timeout = 5 ; seconds
-	wait 'waiting'
+	send 'U' /*actually send the trigger character*/
+	timeout = 5 /* seconds*/
+	wait 'waiting' /*on success, result = 1*/
 	
-	if result = 0 then
-		messagebox "Oops - timed out waiting for 'waiting' from Teensy" "Error"
-		goto ERROR ;error exit - closes COM connection and TT
-	else ; OK, got 'waiting'...
+	if result <> 1 then
+		sprintf2 errstr "Oops - timed out waiting for 'waiting' from Teensy - Try Again?"
+		yesnobox errstr "Error"
+		if result <> 1 then
+			goto ERROR /*error exit - closes COM connection and TT*/
+		else
+			result = 0
+			goto COMCONNECT
+		endif
+		
+	else /* OK, got 'waiting'...*/
 		if VERBOSE then
 			msgstr = "got 'waiting' string - sending file" 
 			messagebox  msgstr 'info'
 		endif
 		
-		;10/30/21 chg to use constructed filename vs hard-coded
-		;hexfilestr = 'C:\Users\Frank\Documents\Arduino\Teensy Projects\TeensyOTADemo\Release\TeensyOTADemo.hex'
-		sprintf2 hexfilestr '%s%s' pathtoHexfile HEXfilename
+		/*10/30/21 chg to use constructed filename vs hard-coded*/
+		sprintf2 hexfilestr '%s\%s' BuildPath HEXfilename/* 01/02/2022 add trailing '\' back to BuildPath*/
 		if VERBOSE then
 			messagebox hexfilestr 'sendfile'
 		endif
-		sendfile hexfilestr 0 ;actually send the file. Note the 0 is required to make it work
+		sendfile hexfilestr 0 /*actually send the file. Note the 0 is required to make it work*/
 		
-		;now we have to extract the number of lines from the 'enter xxxx to flash...' string
-		wait 'enter' ;get the next line from Teensy
+		/*now we have to extract the number of lines from the 'enter xxxx to flash...' string*/
+		wait 'enter' /*get the next line from Teensy*/
 		if result = 0 then
 			messagebox "Oops - timed out waiting for 'enter' from Teensy" "Error"
-			goto ERROR ;error exit - closes COM connection and TT
-		else ; OK, got 'enter'...
+			goto ERROR /*error exit - closes COM connection and TT*/
+		else /* OK, got 'enter'...*/
 			if VERBOSE then
 				msgstr = "got string containing 'enter'"
 				messagebox msgstr 'info'
 			endif
 			
-			recvln; this puts received line into 'inputstr'
+			recvln/* this puts received line into 'inputstr'*/
 			if result = 1 then
-				; if VERBOSE then
+/*				; if VERBOSE then
 					; messagebox inputstr 'From Teensy'
 				; endif
-				
-				;now extract number of lines from inputstr
-				strsplit inputstr ' ' ;puts numlines string into <groupmatchstr2>
-				strtrim groupmatchstr2 ' ';trim any leading/trailing spaces
+*/				
+				/*now extract number of lines from inputstr*/
+				strsplit inputstr ' ' /*puts numlines string into <groupmatchstr2>*/
+				strtrim groupmatchstr2 ' '/*trim any leading/trailing spaces*/
 
 				if result <> 0 then
 				if VERBOSE then
@@ -138,21 +159,21 @@ else
 					messagebox msgstr 'From Teensy'
 				endif
 					
-					;now send <groupmatchstr2> to Teensy to confirm update
+					/*now send <groupmatchstr2> to Teensy to confirm update*/
 					if VERBOSE then
 						sprintf2 msgstr "sending '%s' to Teensy" groupmatchstr2
 						messagebox msgstr 'To Teensy'
 					endif
 
-					sendln groupmatchstr2; actually sends the <numlines> value
+					sendln groupmatchstr2/* actually sends the <numlines> value*/
 				else
 					messagebox 'groupmatchstr2 send failed' 'error'
-					goto ERROR ;error exit - closes COM connection and TT
+					goto ERROR /*error exit - closes COM connection and TT*/
 				endif
 
 			else
 				messagebox "nothing received from Teensy" info
-				goto ERROR ;error exit - closes COM connection and TT
+				goto ERROR /*error exit - closes COM connection and TT*/
 			endif
 		endif
 	endif
@@ -163,19 +184,9 @@ if VERBOSE then
 	messagebox "closing COM port and Tera Term" "info"
 endif
 
-testlink ;TT may or may not be connnected
+testlink /*TT may or may not be connnected*/
 if result <> 0 then
-	disconnect 1 ;closes the COM port connection
-	closett; closes teraterm
+	disconnect 1 /*closes the COM port connection*/
+	closett /* closes teraterm*/
 endif
-
 end
-
-;endif
-;filenamebox 'File selection' 0
-;if result<>0 then
-;	messagebox inputstr 'title' 0
-;	sendfile inputstr 1
-;endif
-
-;c:\Program Files (x86)\teraterm>ttpmacro.exe /v "c:\users\Frank\Documents\Arduino\Teensy Projects\TeensyOTADemo\TeensyOTA1.ttl" 4
